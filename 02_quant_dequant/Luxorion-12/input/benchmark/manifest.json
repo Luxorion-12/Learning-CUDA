@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "tensor_header_bytes": 20,
+  "dtype": "fp32",
+  "endianness": "little",
+  "row_major": true,
+  "block_layout": "continuous_flattened",
+  "num_rows": 1024,
+  "num_cols": 1024,
+  "element_count": 1048576,
+  "seed": 1234,
+  "datasets": [
+    {"file": "uniform_fp32_1024x1024_seed1234.tensor.bin", "distribution": "uniform", "min": -6000.0, "max": 6000.0},
+    {"file": "normal_fp32_1024x1024_seed1234.tensor.bin", "distribution": "normal", "mean": 0.0, "stddev": 20.0},
+    {"file": "outliers_fp32_1024x1024_seed1234.tensor.bin", "distribution": "normal_with_outliers", "mean": 0.0, "stddev": 20.0, "outlier_interval": 1000, "outlier_magnitude": 6000.0}
+  ]
+}
