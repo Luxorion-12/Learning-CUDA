@@ -672,8 +672,10 @@ void write_report(const fs::path &p, const Quantized &q,
               payload = q.data.size() + q.scales.size() +
                         (q.format == QuantFormat::Nvfp4 ? 4 : 0),
               outbytes = d.bytes.size();
+  const bool two_input_passes = q.format == QuantFormat::Nvfp4 ||
+                                q.scale_mode == ScaleMode::Tensor;
   double qbytes = static_cast<double>(
-      raw + payload + (q.format == QuantFormat::Nvfp4 ? raw : 0));
+      raw + payload + (two_input_passes ? raw : 0));
   double dbytes = static_cast<double>(payload + outbytes);
   o << std::setprecision(10) << "{\n  \"format\": \""
     << (q.format == QuantFormat::Mxfp8 ? "mxfp8" : "nvfp4")

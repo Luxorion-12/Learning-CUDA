@@ -346,6 +346,9 @@ MXFP8BenchmarkResult benchmark_mxfp8_cuda_impl(
     }
   }
 
+  // Quantization reads the stored input once, then writes one FP8 code and one
+  // E8M0 scale per block.  Dequantization instead reads those two quantized
+  // streams and writes FP32 regardless of whether the source tensor was FP16.
   const std::size_t quantize_bytes = host_input_bytes + input.size()
                                    + quant_blocks;
   const std::size_t dequantize_bytes = input.size() + quant_blocks

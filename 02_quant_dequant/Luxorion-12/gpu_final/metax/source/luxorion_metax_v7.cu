@@ -118,7 +118,7 @@ __device__ std::uint8_t encode_e4(float value, bool stochastic,
   if (x >= 448.0)
     return static_cast<std::uint8_t>(sign | 0x7EU);
   unsigned first = 0, last = 0x7EU;
-#pragma unroll
+#pragma unroll 1
   for (unsigned step = 0; step < 7; ++step) {
     const unsigned mid = (first + last) / 2;
     if (static_cast<double>(e4(static_cast<std::uint8_t>(mid))) < x)
@@ -149,7 +149,7 @@ __device__ std::uint8_t encode_e2(float value, bool stochastic,
   if (x >= 6)
     return sign | 7U;
   unsigned first = 0, last = 7;
-#pragma unroll
+#pragma unroll 1
   for (unsigned step = 0; step < 3; ++step) {
     const unsigned mid = (first + last) / 2;
     if (static_cast<double>(e2(static_cast<std::uint8_t>(mid))) < x)
@@ -717,10 +717,9 @@ void write_report(const fs::path &p, const Quantized &q,
               payload = q.data.size() + q.scales.size() +
                         (q.format == QuantFormat::Nvfp4 ? 4 : 0),
               outbytes = d.bytes.size();
-  const bool two_input_passes = q.format == QuantFormat::Nvfp4 ||
-                                q.scale_mode == ScaleMode::Tensor;
-  double qbytes = static_cast<double>(
-      raw + payload + (two_input_passes ? raw : 0));
+  const bool has_amax_pass = q.format == QuantFormat::Nvfp4 ||
+                             q.scale_mode == ScaleMode::Tensor;
+  double qbytes = static_cast<double>(raw + payload + (has_amax_pass ? raw : 0));
   double dbytes = static_cast<double>(payload + outbytes);
   o << std::setprecision(10) << "{\n  \"format\": \""
     << (q.format == QuantFormat::Mxfp8 ? "mxfp8" : "nvfp4")
