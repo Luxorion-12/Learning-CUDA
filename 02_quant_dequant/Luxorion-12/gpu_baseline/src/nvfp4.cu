@@ -10,6 +10,7 @@
 #include "benchmark_helpers.cuh"
 
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #include <algorithm>
 #include <cmath>
@@ -118,7 +119,11 @@ __device__ std::uint8_t encode_e2m1_device(float value) {
   return static_cast<std::uint8_t>(sign | best);
 }
 
-__global__ void global_amax_partial_kernel(const float* input,
+__device__ float load_input(float value) { return value; }
+__device__ float load_input(__half value) { return __half2float(value); }
+
+template <typename InputT>
+__global__ void global_amax_partial_kernel(const InputT* input,
                                            std::size_t element_count,
                                            float* partial) {
   __shared__ float scratch[kReductionThreads];
@@ -127,7 +132,7 @@ __global__ void global_amax_partial_kernel(const float* input,
                          + threadIdx.x;
        i < element_count;
        i += static_cast<std::size_t>(gridDim.x) * blockDim.x) {
-    local = fmaxf(local, fabsf(input[i]));
+    local = fmaxf(local, fabsf(load_input(input[i])));
   }
   scratch[threadIdx.x] = local;
   __syncthreads();
@@ -165,7 +170,8 @@ __global__ void global_scale_kernel(const float* partial,
   }
 }
 
-__global__ void nvfp4_quantize_kernel(const float* input,
+template <typename InputT>
+__global__ void nvfp4_quantize_kernel(const InputT* input,
                                       std::uint8_t* packed_data,
                                       std::uint8_t* block_scales,
                                       const float* global_scale,
@@ -177,7 +183,7 @@ __global__ void nvfp4_quantize_kernel(const float* input,
   const unsigned lane = threadIdx.x;
   const std::size_t i = static_cast<std::size_t>(blockIdx.x)
                       * kQuantBlockSize + lane;
-  const float value = i < element_count ? input[i] : 0.0F;
+  const float value = i < element_count ? load_input(input[i]) : 0.0F;
   magnitudes[lane] = fabsf(value);
   __syncthreads();
   for (unsigned offset = kQuantBlockSize / 2; offset != 0; offset >>= 1) {
@@ -360,7 +366,9 @@ std::vector<float> nvfp4_dequantize_cuda(const NVFP4Result& q) {
   return output;
 }
 
-NVFP4BenchmarkResult benchmark_nvfp4_cuda(
+template <typename DeviceInput>
+NVFP4BenchmarkResult benchmark_nvfp4_cuda_impl(
+    const void* host_input, std::size_t host_input_bytes,
     const std::vector<float>& input, unsigned warmup, unsigned repeats) {
   validate_source(input);
   NVFP4BenchmarkResult result;
@@ -377,7 +385,7 @@ NVFP4BenchmarkResult benchmark_nvfp4_cuda(
   result.quantized.packed_data.resize(quant_blocks * kBytesPerQuantBlock);
   result.restored.resize(input.size());
 
-  DeviceBuffer<float> device_input(input.size());
+  DeviceBuffer<DeviceInput> device_input(input.size());
   DeviceBuffer<std::uint8_t> device_data(result.quantized.packed_data.size());
   DeviceBuffer<std::uint8_t> device_scales(quant_blocks);
   DeviceBuffer<float> device_global(1);
@@ -387,7 +395,7 @@ NVFP4BenchmarkResult benchmark_nvfp4_cuda(
   const unsigned reduction_blocks = static_cast<unsigned>(
       std::min<std::size_t>(blocks_needed, kMaxReductionBlocks));
   DeviceBuffer<float> device_partial(reduction_blocks);
-  check_cuda(cudaMemcpy(device_input.get(), input.data(), input.size() * sizeof(float),
+  check_cuda(cudaMemcpy(device_input.get(), host_input, host_input_bytes,
                         cudaMemcpyHostToDevice),
              "copying NVFP4 benchmark input to GPU failed");
 
@@ -428,8 +436,8 @@ NVFP4BenchmarkResult benchmark_nvfp4_cuda(
       warmup, repeats, launch_pipeline);
 
   const auto run_end_to_end = [&] {
-    check_cuda(cudaMemcpy(device_input.get(), input.data(),
-                          input.size() * sizeof(float), cudaMemcpyHostToDevice),
+    check_cuda(cudaMemcpy(device_input.get(), host_input, host_input_bytes,
+                          cudaMemcpyHostToDevice),
                "NVFP4 benchmark H2D failed");
     launch_pipeline();
     check_cuda(cudaMemcpy(result.restored.data(), device_output.get(),
@@ -458,7 +466,7 @@ NVFP4BenchmarkResult benchmark_nvfp4_cuda(
     }
   }
 
-  const std::size_t quantize_bytes = input.size() * 2 * sizeof(float)
+  const std::size_t quantize_bytes = host_input_bytes * 2
       + result.quantized.packed_data.size() + result.quantized.block_scales.size()
       + static_cast<std::size_t>(reduction_blocks) * sizeof(float) * 2
       + sizeof(float);
@@ -470,6 +478,24 @@ NVFP4BenchmarkResult benchmark_nvfp4_cuda(
   result.timings.dequantize_effective_gbps = benchmark_detail::effective_gbps(
       dequantize_bytes, result.timings.dequantize.median_ms);
   return result;
+}
+
+NVFP4BenchmarkResult benchmark_nvfp4_cuda(
+    const std::vector<float>& input, unsigned warmup, unsigned repeats) {
+  return benchmark_nvfp4_cuda_impl<float>(
+      input.data(), input.size() * sizeof(float), input, warmup, repeats);
+}
+
+NVFP4BenchmarkResult benchmark_nvfp4_cuda_fp16(
+    const std::vector<std::uint16_t>& input_bits,
+    const std::vector<float>& decoded_input,
+    unsigned warmup, unsigned repeats) {
+  if (input_bits.size() != decoded_input.size()) {
+    throw std::invalid_argument("NVFP4 FP16 bit/value counts differ");
+  }
+  return benchmark_nvfp4_cuda_impl<__half>(
+      input_bits.data(), input_bits.size() * sizeof(std::uint16_t),
+      decoded_input, warmup, repeats);
 }
 
 }  // namespace luxorion

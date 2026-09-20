@@ -21,6 +21,8 @@ struct TensorData {
   // 表示文件data区的原始类型；values在内存中始终为FP32。
   TensorDType dtype = TensorDType::FP32;
   std::vector<float> values;
+  // FP16文件保留原始binary16位模式，供GPU原生half路径直接H2D；FP32时为空。
+  std::vector<std::uint16_t> fp16_bits;
 };
 
 // 读取并严格校验完整文件；尺寸、dtype、文件大小或数值非法时抛出异常。

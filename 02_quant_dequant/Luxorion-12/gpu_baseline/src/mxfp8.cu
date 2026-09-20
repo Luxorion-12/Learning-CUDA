@@ -11,6 +11,7 @@
 #include "benchmark_helpers.cuh"
 
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #include <cmath>
 #include <cstddef>
@@ -109,7 +110,11 @@ __device__ std::uint8_t select_scale_device(float amax) {
   return 254U;
 }
 
-__global__ void mxfp8_quantize_kernel(const float* input,
+__device__ float load_input(float value) { return value; }
+__device__ float load_input(__half value) { return __half2float(value); }
+
+template <typename InputT>
+__global__ void mxfp8_quantize_kernel(const InputT* input,
                                       std::uint8_t* data,
                                       std::uint8_t* scales,
                                       std::size_t element_count) {
@@ -119,7 +124,7 @@ __global__ void mxfp8_quantize_kernel(const float* input,
   const unsigned lane = threadIdx.x;
   const std::size_t i = static_cast<std::size_t>(blockIdx.x)
                       * kQuantBlockSize + lane;
-  const float value = i < element_count ? input[i] : 0.0F;
+  const float value = i < element_count ? load_input(input[i]) : 0.0F;
   magnitudes[lane] = fabsf(value);
   __syncthreads();
 
@@ -262,7 +267,9 @@ std::vector<float> mxfp8_dequantize_cuda(const MXFP8Result& q) {
   return output;
 }
 
-MXFP8BenchmarkResult benchmark_mxfp8_cuda(
+template <typename DeviceInput>
+MXFP8BenchmarkResult benchmark_mxfp8_cuda_impl(
+    const void* host_input, std::size_t host_input_bytes,
     const std::vector<float>& input, unsigned warmup, unsigned repeats) {
   validate_source(input);
   MXFP8BenchmarkResult result;
@@ -278,11 +285,11 @@ MXFP8BenchmarkResult benchmark_mxfp8_cuda(
     throw std::length_error("MXFP8 benchmark input is too large for a 1D grid");
   }
 
-  DeviceBuffer<float> device_input(input.size());
+  DeviceBuffer<DeviceInput> device_input(input.size());
   DeviceBuffer<std::uint8_t> device_data(input.size());
   DeviceBuffer<std::uint8_t> device_scales(quant_blocks);
   DeviceBuffer<float> device_output(input.size());
-  check_cuda(cudaMemcpy(device_input.get(), input.data(), input.size() * sizeof(float),
+  check_cuda(cudaMemcpy(device_input.get(), host_input, host_input_bytes,
                         cudaMemcpyHostToDevice),
              "copying MXFP8 benchmark input to GPU failed");
 
@@ -315,8 +322,8 @@ MXFP8BenchmarkResult benchmark_mxfp8_cuda(
       warmup, repeats, launch_pipeline);
 
   const auto run_end_to_end = [&] {
-    check_cuda(cudaMemcpy(device_input.get(), input.data(),
-                          input.size() * sizeof(float), cudaMemcpyHostToDevice),
+    check_cuda(cudaMemcpy(device_input.get(), host_input, host_input_bytes,
+                          cudaMemcpyHostToDevice),
                "MXFP8 benchmark H2D failed");
     launch_pipeline();
     check_cuda(cudaMemcpy(result.restored.data(), device_output.get(),
@@ -339,13 +346,31 @@ MXFP8BenchmarkResult benchmark_mxfp8_cuda(
     }
   }
 
-  const std::size_t logical_bytes = input.size() * (sizeof(float) + 1)
+  const std::size_t logical_bytes = host_input_bytes + input.size()
                                   + quant_blocks;
   result.timings.quantize_effective_gbps = benchmark_detail::effective_gbps(
       logical_bytes, result.timings.quantize.median_ms);
   result.timings.dequantize_effective_gbps = benchmark_detail::effective_gbps(
       logical_bytes, result.timings.dequantize.median_ms);
   return result;
+}
+
+MXFP8BenchmarkResult benchmark_mxfp8_cuda(
+    const std::vector<float>& input, unsigned warmup, unsigned repeats) {
+  return benchmark_mxfp8_cuda_impl<float>(
+      input.data(), input.size() * sizeof(float), input, warmup, repeats);
+}
+
+MXFP8BenchmarkResult benchmark_mxfp8_cuda_fp16(
+    const std::vector<std::uint16_t>& input_bits,
+    const std::vector<float>& decoded_input,
+    unsigned warmup, unsigned repeats) {
+  if (input_bits.size() != decoded_input.size()) {
+    throw std::invalid_argument("MXFP8 FP16 bit/value counts differ");
+  }
+  return benchmark_mxfp8_cuda_impl<__half>(
+      input_bits.data(), input_bits.size() * sizeof(std::uint16_t),
+      decoded_input, warmup, repeats);
 }
 
 }  // namespace luxorion

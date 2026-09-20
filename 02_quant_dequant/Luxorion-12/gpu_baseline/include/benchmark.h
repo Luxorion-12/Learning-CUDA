@@ -41,7 +41,15 @@ struct NVFP4BenchmarkResult {
 
 MXFP8BenchmarkResult benchmark_mxfp8_cuda(
     const std::vector<float>& input, unsigned warmup, unsigned repeats);
+MXFP8BenchmarkResult benchmark_mxfp8_cuda_fp16(
+    const std::vector<std::uint16_t>& input_bits,
+    const std::vector<float>& decoded_input,
+    unsigned warmup, unsigned repeats);
 NVFP4BenchmarkResult benchmark_nvfp4_cuda(
     const std::vector<float>& input, unsigned warmup, unsigned repeats);
+NVFP4BenchmarkResult benchmark_nvfp4_cuda_fp16(
+    const std::vector<std::uint16_t>& input_bits,
+    const std::vector<float>& decoded_input,
+    unsigned warmup, unsigned repeats);
 
 }  // namespace luxorion

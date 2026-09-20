@@ -195,6 +195,7 @@ TensorData read_tensor_file(const std::string& path) {
   if (!file) throw std::runtime_error("failed to read tensor data");
 
   tensor.values.resize(count);
+  if (tensor.dtype == TensorDType::FP16) tensor.fp16_bits.resize(count);
   for (std::size_t i = 0; i < count; ++i) {
     float value = 0.0F;
     if (tensor.dtype == TensorDType::FP32) {
@@ -204,7 +205,9 @@ TensorData read_tensor_file(const std::string& path) {
         throw std::invalid_argument("tensor data must not contain FP32 NaN or Inf");
       }
     } else {
-      value = decode_fp16(decode_u16_le(payload.data() + i * 2));
+      const std::uint16_t bits = decode_u16_le(payload.data() + i * 2);
+      tensor.fp16_bits[i] = bits;
+      value = decode_fp16(bits);
     }
     tensor.values[i] = value;
   }

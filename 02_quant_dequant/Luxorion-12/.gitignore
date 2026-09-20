@@ -4,4 +4,4 @@ build-*/
 CMakeUserPresets.json
 *.user
 *.suo
-output/gpu_baseline_smoke/
+output/

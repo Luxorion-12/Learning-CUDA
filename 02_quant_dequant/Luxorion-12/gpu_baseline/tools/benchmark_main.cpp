@@ -28,6 +28,8 @@ using luxorion::Metrics;
 struct ResultRow {
   std::string dataset;
   std::string format;
+  std::string input_dtype;
+  std::size_t input_payload_bytes = 0;
   std::size_t elements = 0;
   GpuBaselineTimings timings;
   Metrics error;
@@ -109,7 +111,7 @@ void validate_nvfp4(const luxorion::NVFP4BenchmarkResult& gpu,
 void write_csv(const fs::path& path, const std::vector<ResultRow>& rows) {
   std::ofstream out(path);
   if (!out) throw std::runtime_error("cannot create CSV: " + path.string());
-  out << "dataset,format,elements,warmup,repeats,"
+  out << "dataset,format,input_dtype,input_payload_bytes,elements,warmup,repeats,"
          "quantize_median_ms,quantize_p95_ms,quantize_effective_gbps,"
          "dequantize_median_ms,dequantize_p95_ms,dequantize_effective_gbps,"
          "device_pipeline_median_ms,device_pipeline_p95_ms,"
@@ -118,7 +120,8 @@ void write_csv(const fs::path& path, const std::vector<ResultRow>& rows) {
   out << std::setprecision(10);
   for (const auto& row : rows) {
     const auto& t = row.timings;
-    out << row.dataset << ',' << row.format << ',' << row.elements << ','
+    out << row.dataset << ',' << row.format << ',' << row.input_dtype << ','
+        << row.input_payload_bytes << ',' << row.elements << ','
         << t.warmup << ',' << t.repeats << ','
         << t.quantize.median_ms << ',' << t.quantize.p95_ms << ','
         << t.quantize_effective_gbps << ','
@@ -182,6 +185,8 @@ void write_json(const fs::path& path, const std::vector<ResultRow>& rows,
     out << "    {\n"
         << "      \"dataset\": \"" << json_escape(row.dataset) << "\",\n"
         << "      \"format\": \"" << row.format << "\",\n"
+        << "      \"input_dtype\": \"" << row.input_dtype << "\",\n"
+        << "      \"input_payload_bytes\": " << row.input_payload_bytes << ",\n"
         << "      \"elements\": " << row.elements << ",\n"
         << "      \"timing\": {\n";
     write_timing_json(out, row.timings, "        ");
@@ -235,26 +240,45 @@ int main(int argc, char** argv) {
     check_cuda(cudaDriverGetVersion(&driver_version),
                "cudaDriverGetVersion failed");
 
-    const std::vector<std::string> datasets = {
-        "uniform_fp32_1024x1024_seed1234.tensor.bin",
-        "normal_fp32_1024x1024_seed1234.tensor.bin",
-        "outliers_fp32_1024x1024_seed1234.tensor.bin",
+    const std::vector<std::pair<std::string, std::string>> datasets = {
+        {"uniform_fp32_1024x1024_seed1234.tensor.bin", "uniform_fp32"},
+        {"normal_fp32_1024x1024_seed1234.tensor.bin", "normal_fp32"},
+        {"outliers_fp32_1024x1024_seed1234.tensor.bin", "outliers_fp32"},
+        {"zero_heavy_fp32_1024x1024_seed1234.tensor.bin", "zero_heavy_fp32"},
+        {"multiscale_fp32_1024x1024_seed1234.tensor.bin", "multiscale_fp32"},
+        {"normal_fp16_1024x1024_seed1234.tensor.bin", "normal_fp16"},
+        {"uniform_fp16_1024x1024_seed1234.tensor.bin", "uniform_fp16"},
+        {"outliers_fp16_1024x1024_seed1234.tensor.bin", "outliers_fp16"},
+        {"zero_heavy_fp16_1024x1024_seed1234.tensor.bin", "zero_heavy_fp16"},
+        {"multiscale_fp16_1024x1024_seed1234.tensor.bin", "multiscale_fp16"},
+        {"tail_normal_fp32_1023x1025_seed1234.tensor.bin", "tail_normal_fp32"},
+        {"tail_normal_fp16_1023x1025_seed1234.tensor.bin", "tail_normal_fp16"},
     };
     std::vector<ResultRow> rows;
     rows.reserve(datasets.size() * 2);
 
     std::cout << "GPU: " << properties.name << ", warmup=" << warmup
               << ", repeats=" << repeats << std::endl;
-    for (const auto& filename : datasets) {
+    for (const auto& entry : datasets) {
+      const auto& filename = entry.first;
       const auto tensor = luxorion::read_tensor_file((input_dir / filename).string());
-      const std::string dataset = filename.substr(0, filename.find('_'));
+      const std::string& dataset = entry.second;
+      const std::string input_dtype = tensor.dtype == luxorion::TensorDType::FP16
+          ? "fp16" : "fp32";
+      const std::size_t input_payload_bytes = tensor.values.size()
+          * (tensor.dtype == luxorion::TensorDType::FP16 ? 2U : 4U);
       std::cout << '[' << dataset << "] MXFP8..." << std::flush;
-      const auto mxfp8 = luxorion::benchmark_mxfp8_cuda(
-          tensor.values, warmup, repeats);
+      const auto mxfp8 = tensor.dtype == luxorion::TensorDType::FP16
+          ? luxorion::benchmark_mxfp8_cuda_fp16(
+                tensor.fp16_bits, tensor.values, warmup, repeats)
+          : luxorion::benchmark_mxfp8_cuda(
+                tensor.values, warmup, repeats);
       validate_mxfp8(mxfp8, tensor.values);
       rows.push_back({
           dataset,
           "MXFP8",
+          input_dtype,
+          input_payload_bytes,
           tensor.values.size(),
           mxfp8.timings,
           luxorion::calculate_metrics(tensor.values, mxfp8.restored),
@@ -265,12 +289,17 @@ int main(int argc, char** argv) {
       std::cout << " verified" << std::endl;
 
       std::cout << '[' << dataset << "] NVFP4..." << std::flush;
-      const auto nvfp4 = luxorion::benchmark_nvfp4_cuda(
-          tensor.values, warmup, repeats);
+      const auto nvfp4 = tensor.dtype == luxorion::TensorDType::FP16
+          ? luxorion::benchmark_nvfp4_cuda_fp16(
+                tensor.fp16_bits, tensor.values, warmup, repeats)
+          : luxorion::benchmark_nvfp4_cuda(
+                tensor.values, warmup, repeats);
       validate_nvfp4(nvfp4, tensor.values);
       rows.push_back({
           dataset,
           "NVFP4",
+          input_dtype,
+          input_payload_bytes,
           tensor.values.size(),
           nvfp4.timings,
           luxorion::calculate_metrics(tensor.values, nvfp4.restored),
