@@ -4,7 +4,7 @@
 
 - GPU：MetaX C500，当前实例为 50% sGPU，显存配额约 32 GiB
 - 宿主运行时：MX-SMI 2.3.1，驱动 3.8.30，MACA 3.7.1.5
-- 编译器：`/opt/maca/mxgpu_llvm/bin/mxcc`，版本 1.0.0
+- 编译器：`mxcc`（由 `PATH` 或 `MXCC_BIN` 指定），版本 1.0.0
 - 系统：Ubuntu 24.04.1，CMake 3.28.3，GCC 13.3.0，Ninja 1.11.1
 
 ## 已验证

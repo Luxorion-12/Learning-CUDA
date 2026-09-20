@@ -30,7 +30,7 @@
 - `mx-smi` 完整输出（驱动、MACA、显存和 sGPU 配额）
 - `mxcc --version` 或镜像中实际编译器路径与版本
 - `cmake --version`、`ninja --version`、`gcc --version`
-- `/opt/maca` 是否存在，以及相关环境变量
+- `mxcc` 是否已加入 `PATH`，以及 `MXCC_BIN`、`MACA_PATH`、`MACA_INCLUDE` 等环境变量
 - C500 是否为整卡或 sGPU；若为 sGPU，计算比例与显存配额
 
 ## 镜像原则
@@ -38,3 +38,7 @@
 优先使用模力方舟平台提供、明确支持 C500 且内置 MXMACA C/C++ 编译工具链的 Ubuntu 22.04 x86_64 镜像。镜像内 MACA 用户态版本必须与宿主机驱动兼容；不要先选纯 Ubuntu、纯 PyTorch 推理或仅有 Python 框架而缺少 `mxcc`/开发头文件的镜像。
 
 当前目录仅建立迁移计划。收到服务器地址和密钥并确认工具链后，再把 `Luxorion` 源码复制/改造为可编译的 v0 baseline，避免在本地假设沐曦编译器行为或写入未经 C500 验证的性能结论。
+
+## 最终交付目录
+
+沐曦 C500 的最终文件统一整理在 `gpu_final/metax_c500/`。其中 `source/` 保存当前最佳 v7 源码，`compat/` 保存 MXMACA 兼容层，`scripts/` 保存相对路径构建与复测入口，`results/` 保存 C500 实测数据。

@@ -5,8 +5,14 @@ set -euo pipefail
 # MXMACA supplies mxcc, so the two CUDA translation units are compiled directly.
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${ROOT_DIR}/build/metax"
-MXCC_BIN="${MXCC_BIN:-${MACA_CLANG_PATH:-/opt/maca/mxgpu_llvm/bin}/mxcc}"
-MACA_INCLUDE="${MACA_INCLUDE:-${MACA_PATH:-/opt/maca}/include}"
+MXCC_BIN="${MXCC_BIN:-$(command -v mxcc || true)}"
+if [[ -z "${MXCC_BIN}" ]]; then
+  echo "mxcc not found; add it to PATH or set MXCC_BIN" >&2
+  exit 1
+fi
+MXCC_DIR="$(cd "$(dirname "${MXCC_BIN}")" && pwd)"
+MACA_ROOT="${MACA_PATH:-$(cd "${MXCC_DIR}/../.." && pwd)}"
+MACA_INCLUDE="${MACA_INCLUDE:-${MACA_ROOT}/include}"
 
 cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}/cpu" -G Ninja \
   -DLUXORION_ENABLE_CUDA=OFF

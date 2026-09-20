@@ -294,7 +294,6 @@ CUDA Toolkit 12.8
 cmake -S . -B build\cuda `
   -G "Visual Studio 17 2022" `
   -A x64 `
-  -T "cuda=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8" `
   -DLUXORION_ENABLE_CUDA=ON `
   -DLUXORION_BUILD_HISTORY=OFF `
   -DCMAKE_CUDA_ARCHITECTURES=86
@@ -315,6 +314,10 @@ cmake -S . -B build\cuda `
   -DLUXORION_BUILD_HISTORY=ON
 ```
 历史源码始终保留，`OFF` 只表示不参与默认构建。
+
+## 按 GPU 整理的最终文件
+
+`gpu_final/nvidia_rtx3050/` 保存 NVIDIA RTX 3050 的最终源码、可执行文件与校正后的结果；`gpu_final/metax_c500/` 保存沐曦 C500 的最终 v7 源码、MXMACA 兼容层、构建/复测脚本与实测数据。所有命令均从项目根目录使用相对路径执行。
 其他 GPU 可以将：
 ```text
 CMAKE_CUDA_ARCHITECTURES=86
